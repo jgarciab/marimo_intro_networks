@@ -9,9 +9,11 @@ its nodes by different definitions of *importance*. Built for the
 
 The app is published as a static WebAssembly bundle on GitHub Pages:
 
-**<https://jgarciab.github.io/marimo_intro_networks/>**
+**<https://javier.science/marimo_intro_networks/>**
 
-It runs entirely in your browser — no server needed.
+It runs entirely in your browser — no server needed. The bundle is
+rebuilt automatically by a GitHub Action on every push to `main`
+(see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
 
 ## What it does
 
@@ -54,14 +56,15 @@ doesn't support symlinks).
 ./run.sh            # launches marimo edit mode on the app
 ```
 
-## Rebuilding the WASM bundle
+## Rebuilding the WASM bundle locally
 
 ```bash
 ./export_wasm.sh
 ```
 
-Writes a self-contained static site to `build/` that you can serve with
-`python -m http.server`.
+Writes a self-contained static site to `build/` (gitignored) that you
+can preview with `python -m http.server`. The CI workflow does the same
+thing on push and uploads the output as the Pages artifact.
 
 ## License
 
