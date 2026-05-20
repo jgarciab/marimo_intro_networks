@@ -42,8 +42,11 @@ def imports():
     )
     ACCENT = "#0b789d"
     NEUTRAL_NODE = "#0b789d"
-    # Light grey used for edges in every section.
-    EDGE_COLOR = (0.85, 0.85, 0.85, 0.35)
+    # Light grey used for edges in every section. NOTE: igraph's matplotlib
+    # backend silently drops the alpha channel of an RGBA tuple, so use a
+    # hex string. Slightly darker than day3b's "#bbbbbb" for a bit more
+    # contrast on the white background.
+    EDGE_COLOR = "#aaaaaa"
 
     # Hard cap for WASM (Pyodide). Beyond ~500 nodes the browser slows on
     # every slider tick because matplotlib + ig.plot is the dominant cost.
