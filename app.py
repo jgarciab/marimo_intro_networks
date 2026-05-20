@@ -43,7 +43,7 @@ def imports():
     ACCENT = "#0b789d"
     NEUTRAL_NODE = "#0b789d"
     # Light grey used for edges in every section.
-    EDGE_COLOR = (0.78, 0.78, 0.78, 0.55)
+    EDGE_COLOR = (0.85, 0.85, 0.85, 0.35)
 
     # Hard cap for WASM (Pyodide). Beyond ~500 nodes the browser slows on
     # every slider tick because matplotlib + ig.plot is the dominant cost.
