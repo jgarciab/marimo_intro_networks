@@ -42,11 +42,13 @@ def imports():
     )
     ACCENT = "#0b789d"
     NEUTRAL_NODE = "#0b789d"
+    # Light grey used for edges in every section.
+    EDGE_COLOR = (0.78, 0.78, 0.78, 0.55)
 
     # Hard cap for WASM (Pyodide). Beyond ~500 nodes the browser slows on
     # every slider tick because matplotlib + ig.plot is the dominant cost.
     MAX_NODES = 500
-    return ACCENT, MAX_NODES, NEUTRAL_NODE, PALETTE, ig, io, mo, np, pd, plt, rnd_mod
+    return ACCENT, EDGE_COLOR, MAX_NODES, NEUTRAL_NODE, PALETTE, ig, io, mo, np, pd, plt, rnd_mod
 
 
 # -----------------------------------------------------------------------------
@@ -599,8 +601,9 @@ def s1_three_views(attr_name, g, mo, np, pd, plt):
             "Supports directed, undirected, mixed, weighted and "
             "multi-graphs. Verbose but lossless — the right format "
             "when the data is more than a bare list of pairs. "
-            "**Rule of thumb:** CSV to share, GraphML to keep "
-            "attributes, JSON for the web."
+            "**Rule of thumb:** GraphML in general, CSV for small / "
+            "simple cases (you usually need two tables — one for "
+            "edges, one for node attributes), JSON for the web."
         ),
     ])
     mo.vstack([_row_top, _row_bottom], gap=1.5)
@@ -625,8 +628,8 @@ def section2_header(mo):
     deliberately don't. Pick one, choose what to colour by, and notice
     which structural facts survive across layouts.
 
-    Node positions are computed **once** per layout — changing node size
-    or edge transparency does not reshuffle the nodes.
+    Node positions are computed **once** per layout — changing node
+    size or colouring does not reshuffle the nodes.
     """)
     return
 
@@ -654,13 +657,10 @@ def s2_widgets(attr_names, g, mo):
     node_size = mo.ui.slider(
         start=10, stop=80, step=2, value=22, label="Node size",
     )
-    edge_alpha = mo.ui.slider(
-        start=0.05, stop=1.0, step=0.05, value=0.25, label="Edge alpha",
-    )
     show_labels = mo.ui.checkbox(
         value=(g.vcount() <= 40), label="Show node labels",
     )
-    return color_choice, edge_alpha, layout_choice, node_size, show_labels
+    return color_choice, layout_choice, node_size, show_labels
 
 
 @app.cell
@@ -683,13 +683,13 @@ def s2_layout_cache(g, layout_choice):
 
 @app.cell
 def s2_plot(
+    EDGE_COLOR,
     NEUTRAL_NODE,
     PALETTE,
     attr_name,
     attr_value_names,
     color_choice,
     community_membership,
-    edge_alpha,
     g,
     ig,
     layout_choice,
@@ -749,7 +749,7 @@ def s2_plot(
         vertex_label=_vlabels,
         vertex_label_size=9,
         vertex_label_color="#222222",
-        edge_color=(0.55, 0.55, 0.55, float(edge_alpha.value)),
+        edge_color=EDGE_COLOR,
         edge_width=1.0,
     )
     if _legend_pairs is not None and len(_legend_pairs) <= 14:
@@ -771,7 +771,7 @@ def s2_plot(
     plt.tight_layout()
 
     _controls = mo.vstack([
-        layout_choice, color_choice, node_size, edge_alpha, show_labels,
+        layout_choice, color_choice, node_size, show_labels,
     ], gap=0.8)
     mo.hstack(
         [_controls, _fig],
@@ -1108,7 +1108,7 @@ def s4_modify(assort_bias, clustering_bias, edges_pct, g, rewire_pct, rnd_mod):
 
 
 @app.cell
-def s4_metrics_and_viz(NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo, np, plt):
+def s4_metrics_and_viz(EDGE_COLOR, NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo, np, plt):
     def _metrics(graph):
         _n = graph.vcount()
         _m = graph.ecount()
@@ -1183,7 +1183,7 @@ def s4_metrics_and_viz(NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo, np, plt):
         vertex_size=18,
         vertex_frame_width=0,
         vertex_label=[""] * g_mod.vcount(),
-        edge_color=(0.55, 0.55, 0.55, 0.35),
+        edge_color=EDGE_COLOR,
         edge_width=1.0,
     )
     _ax.set_title(f"Modified network  ·  n={g_mod.vcount()}, m={g_mod.ecount()}")
@@ -1262,27 +1262,49 @@ def s5_compute(g, np):
 
 
 @app.cell
-def s5_grid(centralities, fr_coords, g, ig, mo, np, plt):
+def s5_grid(EDGE_COLOR, centralities, fr_coords, g, ig, mo, np, plt):
+    import matplotlib as _mpl
+
     _measures = ["Degree", "Betweenness", "Closeness", "Eigenvector"]
-    # Five-step sequential palette (viridis sub-sampled). Lowest quintile
-    # = dark blue/purple, highest = bright yellow-green.
-    _cmap = plt.get_cmap("viridis")
-    _quintile_colors = [_cmap(t) for t in (0.10, 0.30, 0.50, 0.70, 0.90)]
-    _quintile_labels = ["Q1 (lowest)", "Q2", "Q3", "Q4", "Q5 (highest)"]
+    # afmhot_r: light → dark as t increases. We sample 10 evenly-spaced
+    # tones avoiding pure white at one end and pure black at the other,
+    # so the highest decile is dark and the lowest is pale.
+    _cmap_src = plt.get_cmap("afmhot_r")
+    _decile_colors = [_cmap_src(0.05 + i * 0.10) for i in range(10)]
+    _listed = _mpl.colors.ListedColormap(_decile_colors)
+    _norm = _mpl.colors.BoundaryNorm(np.arange(11) - 0.5, 10)
+
     _names = g.vs["name"]
     _show_labels = g.vcount() <= 30
 
-    _fig, _axes = plt.subplots(2, 2, figsize=(10, 8.5))
+    _fig, _axes = plt.subplots(2, 2, figsize=(10, 9.0), constrained_layout=True)
+
+    # Discrete colour-bar legend ABOVE the grid.
+    _sm = _mpl.cm.ScalarMappable(cmap=_listed, norm=_norm)
+    _sm.set_array([])
+    _cbar = _fig.colorbar(
+        _sm, ax=_axes.ravel().tolist(),
+        orientation="horizontal",
+        location="top",
+        shrink=0.6,
+        aspect=40,
+        ticks=np.arange(10),
+    )
+    _cbar.set_ticklabels([str(i + 1) for i in range(10)], fontsize=9)
+    _cbar.set_label(
+        "Centrality decile — D1 lowest (light) → D10 highest (dark), "
+        "computed per panel",
+        fontsize=10,
+    )
+
     for _ax, _name in zip(_axes.flat, _measures):
         _c = np.asarray(centralities[_name], dtype=float)
-        # Assign each node to a quintile (0..4). Use percentile breakpoints
-        # at 20/40/60/80; np.digitize maps values to those bins.
         if np.any(_c != _c[0]):
-            _bins = np.percentile(_c, [20, 40, 60, 80])
-            _bin_idx = np.digitize(_c, _bins)  # 0..4
+            _bins = np.percentile(_c, np.arange(10, 100, 10))  # 9 cut-points
+            _bin_idx = np.digitize(_c, _bins)  # 0..9
         else:
             _bin_idx = np.zeros(len(_c), dtype=int)
-        _colors = [_quintile_colors[int(b)] for b in _bin_idx]
+        _colors = [_decile_colors[int(b)] for b in _bin_idx]
 
         _ax.set_facecolor("white")
         _ax.grid(False)
@@ -1299,7 +1321,7 @@ def s5_grid(centralities, fr_coords, g, ig, mo, np, plt):
             vertex_frame_width=0,
             vertex_label=_names if _show_labels else [""] * g.vcount(),
             vertex_label_size=8,
-            edge_color=(0.55, 0.55, 0.55, 0.35),
+            edge_color=EDGE_COLOR,
             edge_width=0.9,
         )
         _top = int(np.argmax(_c))
@@ -1313,26 +1335,6 @@ def s5_grid(centralities, fr_coords, g, ig, mo, np, plt):
             fontsize=11,
         )
 
-    # Shared discrete legend below the four panels.
-    _legend_handles = [
-        plt.Line2D(
-            [0], [0], marker="o", color="w",
-            markerfacecolor=_qc, markeredgecolor="#333",
-            markersize=10, label=_lbl,
-        )
-        for _qc, _lbl in zip(_quintile_colors, _quintile_labels)
-    ]
-    _fig.legend(
-        handles=_legend_handles,
-        loc="lower center",
-        ncol=5,
-        frameon=False,
-        bbox_to_anchor=(0.5, -0.02),
-        fontsize=10,
-        title="Centrality quintile  (within each panel)",
-        title_fontsize=10,
-    )
-    plt.tight_layout(rect=(0, 0.04, 1, 1))
     mo.vstack([_fig])
     return
 
