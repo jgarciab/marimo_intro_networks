@@ -66,6 +66,19 @@ Writes a self-contained static site to `build/` (gitignored) that you
 can preview with `python -m http.server`. The CI workflow does the same
 thing on push and uploads the output as the Pages artifact.
 
+## WASM runtime caveat: Pyodide's igraph lags PyPI
+
+The deployed app does **not** run on the igraph version in `uv.lock` — it
+runs on **Pyodide's own python-igraph build**, which can lag several
+releases behind PyPI. Example: `Graph.are_adjacent()` (the ≥ 0.11 rename
+of `are_connected()`) crashed the deployed app with an `AttributeError`
+while working fine locally. Before using any newer igraph API in
+`app.py`, check it exists in the igraph version shipped by the Pyodide
+release marimo targets, or use a version-portable equivalent (neighbor
+sets, or `get_eid(u, v, error=False) != -1`). `verify_app.py` runs a
+headless check for known-bad APIs plus a functional pass over every
+bundled network; CI runs it before every deploy.
+
 ## License
 
 MIT.
