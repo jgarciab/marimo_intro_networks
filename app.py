@@ -1142,7 +1142,21 @@ def s4_modify(assort_bias, clustering_bias, edges_pct, g, ig, rewire_pct, rnd_mo
 
 
 @app.cell
-def s4_metrics_and_viz(EDGE_COLOR, NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo, np, plt):
+def s4_view_opts(mo):
+    relayout_check = mo.ui.checkbox(
+        value=False,
+        label="Recompute layout for the modified network "
+        "(shows its real structure; node positions no longer match "
+        "the original)",
+    )
+    return (relayout_check,)
+
+
+@app.cell
+def s4_metrics_and_viz(
+    EDGE_COLOR, NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo, np, plt,
+    relayout_check, rnd_mod,
+):
     def _metrics(graph):
         _n = graph.vcount()
         _m = graph.ecount()
@@ -1209,22 +1223,45 @@ def s4_metrics_and_viz(EDGE_COLOR, NEUTRAL_NODE, g, g_mod, ig, layout_coords, mo
     _ax.set_yticks([])
     for _side in ("top", "right", "bottom", "left"):
         _ax.spines[_side].set_visible(False)
+    # Node size = degree, so degree mixing (the assortativity sliders)
+    # is visible: at +100 the big nodes pair up, at −100 big nodes sit
+    # surrounded by small ones.
+    _deg_mod = np.array(g_mod.degree(), dtype=float)
+    _max_deg = max(float(_deg_mod.max()), 1.0)
+    _sizes_mod = list(8 + 26 * np.sqrt(_deg_mod / _max_deg))
+
+    if relayout_check.value:
+        # Fresh (seeded) layout of the modified topology — shows the new
+        # structure honestly, at the cost of node correspondence.
+        rnd_mod.seed(20260519)
+        _mod_coords = [
+            tuple(row)
+            for row in g_mod.layout_fruchterman_reingold(niter=500).coords
+        ]
+        _layout_note = "fresh layout"
+    else:
+        _mod_coords = layout_coords
+        _layout_note = "original positions"
+
     ig.plot(
         g_mod,
         target=_ax,
-        layout=layout_coords,
+        layout=_mod_coords,
         vertex_color=NEUTRAL_NODE,
-        vertex_size=18,
+        vertex_size=_sizes_mod,
         vertex_frame_width=0,
         vertex_label=[""] * g_mod.vcount(),
         edge_color=EDGE_COLOR,
         edge_width=1.0,
     )
-    _ax.set_title(f"Modified network  ·  n={g_mod.vcount()}, m={g_mod.ecount()}")
+    _ax.set_title(
+        f"Modified network  ·  n={g_mod.vcount()}, m={g_mod.ecount()}  ·  "
+        f"node size = degree  ·  {_layout_note}"
+    )
     plt.tight_layout()
 
     mo.hstack(
-        [_table_md, _fig],
+        [_table_md, mo.vstack([relayout_check, _fig], gap=0.4)],
         widths=[1.0, 1.4],
         gap=1.5,
         align="start",
