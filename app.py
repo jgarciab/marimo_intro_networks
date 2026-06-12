@@ -1054,8 +1054,13 @@ def s4_modify(assort_bias, clustering_bias, edges_pct, g, rewire_pct, rnd_mod):
             )
             if _pick[1] is None or _pick[0] <= _curr:
                 continue
+            # Adjacency test via the maintained neighbor sets, NOT igraph:
+            # Graph.are_adjacent() needs python-igraph >= 0.11 and the
+            # Pyodide (WASM) runtime may ship an older igraph where the
+            # method is still are_connected(). Set membership is also
+            # faster than the igraph call.
             if _pick[1] == "ac":
-                if g_mod.are_adjacent(_a, _c) or g_mod.are_adjacent(_b, _d):
+                if _c in _nbrs[_a] or _d in _nbrs[_b]:
                     continue
                 g_mod.delete_edges([_i1, _i2])
                 g_mod.add_edges([(_a, _c), (_b, _d)])
@@ -1064,7 +1069,7 @@ def s4_modify(assort_bias, clustering_bias, edges_pct, g, rewire_pct, rnd_mod):
                 _nbrs[_a].add(_c); _nbrs[_c].add(_a)
                 _nbrs[_b].add(_d); _nbrs[_d].add(_b)
             else:
-                if g_mod.are_adjacent(_a, _d) or g_mod.are_adjacent(_b, _c):
+                if _d in _nbrs[_a] or _c in _nbrs[_b]:
                     continue
                 g_mod.delete_edges([_i1, _i2])
                 g_mod.add_edges([(_a, _d), (_b, _c)])
