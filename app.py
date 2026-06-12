@@ -938,7 +938,16 @@ def section4_header(mo):
 
 
 @app.cell
-def s4_widgets(mo):
+def s4_reset(mo):
+    reset_modify = mo.ui.run_button(label="↺ Reset sliders")
+    return (reset_modify,)
+
+
+@app.cell
+def s4_widgets(mo, reset_modify):
+    # Depending on the reset button means a click re-runs this cell,
+    # recreating the sliders at their default values.
+    reset_modify
     rewire_pct = mo.ui.slider(
         start=0, stop=100, step=5, value=0,
         label="Rewire %",
@@ -963,15 +972,18 @@ def s4_widgets(mo):
         show_value=True,
         full_width=True,
     )
-    mo.hstack(
-        [rewire_pct, edges_pct, clustering_bias, assort_bias],
-        gap=1.5, widths="equal",
-    )
+    mo.vstack([
+        mo.hstack(
+            [rewire_pct, edges_pct, clustering_bias, assort_bias],
+            gap=1.5, widths="equal",
+        ),
+        mo.hstack([reset_modify], justify="start"),
+    ], gap=0.5)
     return assort_bias, clustering_bias, edges_pct, rewire_pct
 
 
 @app.cell
-def s4_modify(assort_bias, clustering_bias, edges_pct, g, rewire_pct, rnd_mod):
+def s4_modify(assort_bias, clustering_bias, edges_pct, g, ig, rewire_pct, rnd_mod):
     # All operations are seeded so the modified graph is deterministic.
     _rng = rnd_mod.Random(20260519)
     g_mod = g.copy()
@@ -1028,90 +1040,102 @@ def s4_modify(assort_bias, clustering_bias, edges_pct, g, rewire_pct, rnd_mod):
         if _new_edges:
             g_mod.add_edges(_new_edges)
 
-    # Helper: degree-preserving swap (a,b)(c,d) -> (a,c)(b,d) or (a,d)(b,c).
-    # Score function decides which swap (if any) to take.
-    def _swap_pass(n_ops, score_fn):
-        _nbrs = [set(g_mod.neighbors(_i)) for _i in range(g_mod.vcount())]
-        for _ in range(n_ops):
-            _m_now = g_mod.ecount()
-            if _m_now < 2:
-                break
-            _i1 = _rng.randrange(_m_now)
-            _i2 = _rng.randrange(_m_now)
-            if _i1 == _i2:
-                continue
-            _a = g_mod.es[_i1].source
-            _b = g_mod.es[_i1].target
-            _c = g_mod.es[_i2].source
-            _d = g_mod.es[_i2].target
-            if len({_a, _b, _c, _d}) < 4:
-                continue
-            _curr, _opt1, _opt2 = score_fn(_a, _b, _c, _d, _nbrs)
-            # Highest score wins; ties stay
-            _pick = max(
-                (_curr, None), (_opt1, "ac"), (_opt2, "ad"),
-                key=lambda t: t[0],
-            )
-            if _pick[1] is None or _pick[0] <= _curr:
-                continue
-            # Adjacency test via the maintained neighbor sets, NOT igraph:
-            # Graph.are_adjacent() needs python-igraph >= 0.11 and the
-            # Pyodide (WASM) runtime may ship an older igraph where the
-            # method is still are_connected(). Set membership is also
-            # faster than the igraph call.
-            if _pick[1] == "ac":
-                if _c in _nbrs[_a] or _d in _nbrs[_b]:
-                    continue
-                g_mod.delete_edges([_i1, _i2])
-                g_mod.add_edges([(_a, _c), (_b, _d)])
-                _nbrs[_a].discard(_b); _nbrs[_b].discard(_a)
-                _nbrs[_c].discard(_d); _nbrs[_d].discard(_c)
-                _nbrs[_a].add(_c); _nbrs[_c].add(_a)
-                _nbrs[_b].add(_d); _nbrs[_d].add(_b)
-            else:
-                if _d in _nbrs[_a] or _c in _nbrs[_b]:
-                    continue
-                g_mod.delete_edges([_i1, _i2])
-                g_mod.add_edges([(_a, _d), (_b, _c)])
-                _nbrs[_a].discard(_b); _nbrs[_b].discard(_a)
-                _nbrs[_c].discard(_d); _nbrs[_d].discard(_c)
-                _nbrs[_a].add(_d); _nbrs[_d].add(_a)
-                _nbrs[_b].add(_c); _nbrs[_c].add(_b)
-
-    # 3) Clustering bias — swap that maximises/minimises triangle count.
+    # 3+4) Bias sliders: degree-preserving swaps (a,b)(c,d) -> (a,c)(b,d)
+    # or (a,d)(b,c). They run on a plain edge list + neighbor sets and the
+    # igraph object is rebuilt once at the end: pure-Python swaps are
+    # ~100x cheaper than igraph delete/add cycles, so the +/-100 ends can
+    # afford enough attempts to saturate (i.e. be properly extreme) even
+    # in the browser. NOTE: never use Graph.are_adjacent() here — it
+    # needs python-igraph >= 0.11 and Pyodide (WASM) may ship an older
+    # igraph. Set membership is faster anyway.
     _cb = clustering_bias.value
-    if _cb != 0 and g_mod.ecount() >= 2:
-        _sign = 1 if _cb > 0 else -1
-        _n_ops = int(abs(_cb) * 8)  # 100 -> 800 attempted swaps
-
-        def _tri_score(a, b, c, d, nbrs_):
-            # Score: number of triangles gained. Higher = more clustering.
-            lost = len(nbrs_[a] & nbrs_[b]) + len(nbrs_[c] & nbrs_[d])
-            gain_ac = len(nbrs_[a] & nbrs_[c]) + len(nbrs_[b] & nbrs_[d])
-            gain_ad = len(nbrs_[a] & nbrs_[d]) + len(nbrs_[b] & nbrs_[c])
-            curr = 0
-            opt1 = _sign * (gain_ac - lost)
-            opt2 = _sign * (gain_ad - lost)
-            return curr, opt1, opt2
-
-        _swap_pass(_n_ops, _tri_score)
-
-    # 4) Assortativity bias — degree-preserving swaps.
     _ab = assort_bias.value
-    if _ab != 0 and g_mod.ecount() >= 2:
-        _sign = 1 if _ab > 0 else -1
-        _n_ops = int(abs(_ab) * 8)
-        _deg = g_mod.degree()
+    if (_cb != 0 or _ab != 0) and g_mod.ecount() >= 2:
+        _edges = [(e.source, e.target) for e in g_mod.es]
+        _nbrs = [set() for _ in range(_n)]
+        for _u, _v in _edges:
+            _nbrs[_u].add(_v)
+            _nbrs[_v].add(_u)
 
-        def _assort_score(a, b, c, d, nbrs_):
-            # Positive sign wants small degree-diff (similar paired).
-            # Express as score that is HIGHER when diff is SMALLER.
-            curr = -(abs(_deg[a] - _deg[b]) + abs(_deg[c] - _deg[d]))
-            o1 = -(abs(_deg[a] - _deg[c]) + abs(_deg[b] - _deg[d]))
-            o2 = -(abs(_deg[a] - _deg[d]) + abs(_deg[b] - _deg[c]))
-            return _sign * curr, _sign * o1, _sign * o2
+        def _swap_pass(n_ops, score_fn):
+            _m_now = len(_edges)
+            for _ in range(n_ops):
+                _i1 = _rng.randrange(_m_now)
+                _i2 = _rng.randrange(_m_now)
+                if _i1 == _i2:
+                    continue
+                _a, _b = _edges[_i1]
+                _c, _d = _edges[_i2]
+                if len({_a, _b, _c, _d}) < 4:
+                    continue
+                _curr, _opt1, _opt2 = score_fn(_a, _b, _c, _d, _nbrs)
+                # Highest score wins; ties stay
+                _pick = max(
+                    (_curr, None), (_opt1, "ac"), (_opt2, "ad"),
+                    key=lambda t: t[0],
+                )
+                if _pick[1] is None or _pick[0] <= _curr:
+                    continue
+                if _pick[1] == "ac":
+                    if _c in _nbrs[_a] or _d in _nbrs[_b]:
+                        continue
+                    _e1, _e2 = (_a, _c), (_b, _d)
+                else:
+                    if _d in _nbrs[_a] or _c in _nbrs[_b]:
+                        continue
+                    _e1, _e2 = (_a, _d), (_b, _c)
+                _nbrs[_a].discard(_b); _nbrs[_b].discard(_a)
+                _nbrs[_c].discard(_d); _nbrs[_d].discard(_c)
+                for _u, _v in (_e1, _e2):
+                    _nbrs[_u].add(_v)
+                    _nbrs[_v].add(_u)
+                _edges[_i1] = _e1
+                _edges[_i2] = _e2
 
-        _swap_pass(_n_ops, _assort_score)
+        def _bias_ops(bias_val):
+            # 100 -> ~30 sweeps over the edge list (at least 2000
+            # attempts), enough for the greedy swaps to converge on
+            # small and medium networks alike.
+            return int(abs(bias_val) / 100 * max(2000, 30 * len(_edges)))
+
+        # Clustering bias — swaps that maximise/minimise triangle count.
+        if _cb != 0:
+            _tri_sign = 1 if _cb > 0 else -1
+
+            def _tri_score(a, b, c, d, nbrs_):
+                # Score: number of triangles gained. Higher = more
+                # clustering.
+                lost = len(nbrs_[a] & nbrs_[b]) + len(nbrs_[c] & nbrs_[d])
+                gain_ac = len(nbrs_[a] & nbrs_[c]) + len(nbrs_[b] & nbrs_[d])
+                gain_ad = len(nbrs_[a] & nbrs_[d]) + len(nbrs_[b] & nbrs_[c])
+                return (
+                    0,
+                    _tri_sign * (gain_ac - lost),
+                    _tri_sign * (gain_ad - lost),
+                )
+
+            _swap_pass(_bias_ops(_cb), _tri_score)
+
+        # Assortativity bias — pair high-degree with high-degree (+) or
+        # high with low (−). The degree product over edges is the raw
+        # ingredient of the assortativity correlation, so optimizing it
+        # pushes the coefficient much further than a degree-difference
+        # heuristic.
+        if _ab != 0:
+            _as_sign = 1 if _ab > 0 else -1
+            _deg = [len(_nbrs[_i]) for _i in range(_n)]  # swap-invariant
+
+            def _assort_score(a, b, c, d, nbrs_):
+                curr = _deg[a] * _deg[b] + _deg[c] * _deg[d]
+                o1 = _deg[a] * _deg[c] + _deg[b] * _deg[d]
+                o2 = _deg[a] * _deg[d] + _deg[b] * _deg[c]
+                return _as_sign * curr, _as_sign * o1, _as_sign * o2
+
+            _swap_pass(_bias_ops(_ab), _assort_score)
+
+        _names_keep = list(g_mod.vs["name"])
+        g_mod = ig.Graph(n=_n, edges=_edges, directed=False)
+        g_mod.vs["name"] = _names_keep
 
     g_mod.simplify(multiple=True, loops=True)
     return (g_mod,)
