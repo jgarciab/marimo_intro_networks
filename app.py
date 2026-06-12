@@ -457,6 +457,8 @@ def title(mo):
     mo.md(r"""
     # From data to a story about a network
 
+    *Javier Garcia-Bernardo — ODISSEI Social Data Science team (SoDa) & Department of Methodology and Statistics, Utrecht University*
+
     Pick a network in the sidebar — bundled, your own edge list, or your
     own GraphML — and we'll do five things with that same network:
 
@@ -1361,6 +1363,7 @@ def s5_top3(centralities, g, mo, np):
 def footer(mo):
     mo.md(r"""
     ---
+    Javier Garcia-Bernardo — SoDa & Utrecht University ·
     Network Science Summer School 2026 · Utrecht University ·
     standalone marimo companion app.
     """)
